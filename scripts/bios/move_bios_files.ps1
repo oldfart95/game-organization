@@ -5,6 +5,9 @@ $libretroBiosPath = "D:\LibretroBIOS"
 $retroBatBiosPath = "D:\RetroBat\bios"
 $workingDirPath = "$PSScriptRoot\bios_organization"
 
+# Load the System.IO.Compression.FileSystem assembly for zip handling
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+
 # Create known BIOS system mapping
 # This table maps known BIOS files to their correct system folders
 $biosMapping = @{
@@ -341,6 +344,25 @@ function Get-DestinationFolder {
     return $biosMapping["default"]
 }
 
+# Function to extract zip files
+function Extract-ZipFile {
+    param(
+        [string]$zipFilePath,
+        [string]$extractPath
+    )
+    
+    try {
+        Write-Host "Extracting zip file: $zipFilePath to $extractPath" -ForegroundColor Cyan
+        [System.IO.Compression.ZipFile]::ExtractToDirectory($zipFilePath, $extractPath)
+        return $true
+    }
+    catch {
+        Write-Host "Error extracting zip file $zipFilePath`: $_" -ForegroundColor Red
+        "ERROR: Failed to extract $zipFilePath - $_" | Out-File $logFile -Append
+        return $false
+    }
+}
+
 # Check if paths exist
 if (-not (Test-Path $libretroBiosPath)) {
     Write-Host "LibretroBIOS folder not found at $libretroBiosPath" -ForegroundColor Red
@@ -359,6 +381,14 @@ if (-not (Test-Path $unknownPath)) {
     Write-Host "Created folder for unmapped files: $unknownPath" -ForegroundColor Yellow
 }
 
+# Create temporary folder for zip extraction
+$tempExtractPath = Join-Path -Path $workingDirPath -ChildPath "temp_extract"
+if (Test-Path $tempExtractPath) {
+    Remove-Item -Path $tempExtractPath -Recurse -Force
+}
+New-Item -Path $tempExtractPath -ItemType Directory -Force | Out-Null
+Write-Host "Created temporary folder for zip extraction: $tempExtractPath" -ForegroundColor Yellow
+
 # Create log file
 $logFile = "$workingDirPath\bios_movement_log.txt"
 "BIOS Files Movement Log" | Out-File $logFile
@@ -370,6 +400,8 @@ $stats = @{
     "TotalFiles" = 0
     "FilesMoved" = 0
     "FilesSkipped" = 0
+    "ZipFilesExtracted" = 0
+    "ExtractedFilesMoved" = 0
     "ErrorCount" = 0
 }
 
@@ -387,53 +419,162 @@ if ($confirmation -ne "Y" -and $confirmation -ne "y") {
 $libretroBiosFiles = Get-ChildItem -Path $libretroBiosPath -Recurse -File
 $stats["TotalFiles"] = $libretroBiosFiles.Count
 
-Write-Host "Starting to move $($stats["TotalFiles"]) BIOS files..." -ForegroundColor Cyan
+Write-Host "Starting to process $($stats["TotalFiles"]) BIOS files..." -ForegroundColor Cyan
 
 foreach ($file in $libretroBiosFiles) {
-    $destFolder = Get-DestinationFolder -fileName $file.Name
-    $destPath = Join-Path -Path $retroBatBiosPath -ChildPath $destFolder
-    
-    # Create destination folder if it doesn't exist
-    if (-not (Test-Path $destPath)) {
-        New-Item -Path $destPath -ItemType Directory -Force | Out-Null
-        Write-Host "Created folder: $destPath" -ForegroundColor Yellow
-    }
-    
-    $destFile = Join-Path -Path $destPath -ChildPath $file.Name
-    
-    try {
-        # Check if file already exists at destination
-        if (Test-Path $destFile) {
-            # Get file hash to compare if they're identical
-            $sourceHash = Get-FileHash -Path $file.FullName -Algorithm MD5
-            $destHash = Get-FileHash -Path $destFile -Algorithm MD5
-            
-            if ($sourceHash.Hash -eq $destHash.Hash) {
-                Write-Host "Skipping identical file: $($file.Name)" -ForegroundColor Gray
-                "SKIPPED (Identical): $($file.FullName) -> $destFile" | Out-File $logFile -Append
-                $stats["FilesSkipped"]++
-                continue
-            }
-            else {
-                # Rename source file to avoid overwriting
-                $newFileName = "$($file.BaseName)_$(Get-Date -Format 'yyyyMMddHHmmss')$($file.Extension)"
-                $destFile = Join-Path -Path $destPath -ChildPath $newFileName
-                Write-Host "File exists but different content. Renaming to: $newFileName" -ForegroundColor Yellow
-                "RENAMED: $($file.Name) -> $newFileName" | Out-File $logFile -Append
-            }
+    # Check if file is a zip file
+    if ($file.Extension -eq ".zip") {
+        Write-Host "Found zip file: $($file.Name)" -ForegroundColor Yellow
+        
+        # Determine the destination folder for the zip file
+        $zipDestFolder = Get-DestinationFolder -fileName $file.Name
+        $zipDestPath = Join-Path -Path $retroBatBiosPath -ChildPath $zipDestFolder
+        
+        # Create destination folder if it doesn't exist
+        if (-not (Test-Path $zipDestPath)) {
+            New-Item -Path $zipDestPath -ItemType Directory -Force | Out-Null
+            Write-Host "Created folder: $zipDestPath" -ForegroundColor Yellow
         }
         
-        # Copy the file to destination
-        Copy-Item -Path $file.FullName -Destination $destFile -Force
-        Write-Host "Moved: $($file.Name) -> $destFolder" -ForegroundColor Green
-        "MOVED: $($file.FullName) -> $destFile" | Out-File $logFile -Append
-        $stats["FilesMoved"]++
+        # First, copy the zip file as-is to the destination
+        $zipDestFile = Join-Path -Path $zipDestPath -ChildPath $file.Name
+        
+        try {
+            # Check if the zip file already exists at destination
+            if (Test-Path $zipDestFile) {
+                # Get file hash to compare if they're identical
+                $sourceHash = Get-FileHash -Path $file.FullName -Algorithm MD5
+                $destHash = Get-FileHash -Path $zipDestFile -Algorithm MD5
+                
+                if ($sourceHash.Hash -eq $destHash.Hash) {
+                    Write-Host "Skipping identical zip file: $($file.Name)" -ForegroundColor Gray
+                    "SKIPPED (Identical): $($file.FullName) -> $zipDestFile" | Out-File $logFile -Append
+                    $stats["FilesSkipped"]++
+                }
+                else {
+                    # Copy the zip file
+                    Copy-Item -Path $file.FullName -Destination $zipDestFile -Force
+                    Write-Host "Moved different zip file: $($file.Name) -> $zipDestFolder" -ForegroundColor Green
+                    "MOVED: $($file.FullName) -> $zipDestFile" | Out-File $logFile -Append
+                    $stats["FilesMoved"]++
+                }
+            }
+            else {
+                # Copy the zip file
+                Copy-Item -Path $file.FullName -Destination $zipDestFile -Force
+                Write-Host "Moved zip file: $($file.Name) -> $zipDestFolder" -ForegroundColor Green
+                "MOVED: $($file.FullName) -> $zipDestFile" | Out-File $logFile -Append
+                $stats["FilesMoved"]++
+            }
+            
+            # Now extract the contents to a temp folder
+            $extractFolder = Join-Path -Path $tempExtractPath -ChildPath $file.BaseName
+            New-Item -Path $extractFolder -ItemType Directory -Force | Out-Null
+            
+            if (Extract-ZipFile -zipFilePath $file.FullName -extractPath $extractFolder) {
+                $stats["ZipFilesExtracted"]++
+                
+                # Process each extracted file
+                $extractedFiles = Get-ChildItem -Path $extractFolder -Recurse -File
+                foreach ($extractedFile in $extractedFiles) {
+                    $extractedDestFolder = Get-DestinationFolder -fileName $extractedFile.Name
+                    $extractedDestPath = Join-Path -Path $retroBatBiosPath -ChildPath $extractedDestFolder
+                    
+                    # Create destination folder if it doesn't exist
+                    if (-not (Test-Path $extractedDestPath)) {
+                        New-Item -Path $extractedDestPath -ItemType Directory -Force | Out-Null
+                        Write-Host "Created folder: $extractedDestPath" -ForegroundColor Yellow
+                    }
+                    
+                    $extractedDestFile = Join-Path -Path $extractedDestPath -ChildPath $extractedFile.Name
+                    
+                    try {
+                        # Check if the extracted file already exists at destination
+                        if (Test-Path $extractedDestFile) {
+                            # Get file hash to compare if they're identical
+                            $sourceHash = Get-FileHash -Path $extractedFile.FullName -Algorithm MD5
+                            $destHash = Get-FileHash -Path $extractedDestFile -Algorithm MD5
+                            
+                            if ($sourceHash.Hash -eq $destHash.Hash) {
+                                Write-Host "Skipping identical extracted file: $($extractedFile.Name)" -ForegroundColor Gray
+                                "SKIPPED (Identical Extracted): $($extractedFile.FullName) -> $extractedDestFile" | Out-File $logFile -Append
+                                continue
+                            }
+                        }
+                        
+                        # Copy the extracted file to destination
+                        Copy-Item -Path $extractedFile.FullName -Destination $extractedDestFile -Force
+                        Write-Host "Moved extracted file: $($extractedFile.Name) -> $extractedDestFolder" -ForegroundColor Green
+                        "MOVED EXTRACTED: $($extractedFile.FullName) -> $extractedDestFile" | Out-File $logFile -Append
+                        $stats["ExtractedFilesMoved"]++
+                    }
+                    catch {
+                        Write-Host "Error moving extracted file $($extractedFile.Name): $_" -ForegroundColor Red
+                        "ERROR (Extracted): $($extractedFile.FullName) -> $extractedDestFile - $_" | Out-File $logFile -Append
+                        $stats["ErrorCount"]++
+                    }
+                }
+            }
+        }
+        catch {
+            Write-Host "Error processing zip file $($file.Name): $_" -ForegroundColor Red
+            "ERROR: $($file.FullName) -> $zipDestFile - $_" | Out-File $logFile -Append
+            $stats["ErrorCount"]++
+        }
     }
-    catch {
-        Write-Host "Error moving file $($file.Name): $_" -ForegroundColor Red
-        "ERROR: $($file.FullName) -> $destFile - $_" | Out-File $logFile -Append
-        $stats["ErrorCount"]++
+    else {
+        # Regular file handling (non-zip)
+        $destFolder = Get-DestinationFolder -fileName $file.Name
+        $destPath = Join-Path -Path $retroBatBiosPath -ChildPath $destFolder
+        
+        # Create destination folder if it doesn't exist
+        if (-not (Test-Path $destPath)) {
+            New-Item -Path $destPath -ItemType Directory -Force | Out-Null
+            Write-Host "Created folder: $destPath" -ForegroundColor Yellow
+        }
+        
+        $destFile = Join-Path -Path $destPath -ChildPath $file.Name
+        
+        try {
+            # Check if file already exists at destination
+            if (Test-Path $destFile) {
+                # Get file hash to compare if they're identical
+                $sourceHash = Get-FileHash -Path $file.FullName -Algorithm MD5
+                $destHash = Get-FileHash -Path $destFile -Algorithm MD5
+                
+                if ($sourceHash.Hash -eq $destHash.Hash) {
+                    Write-Host "Skipping identical file: $($file.Name)" -ForegroundColor Gray
+                    "SKIPPED (Identical): $($file.FullName) -> $destFile" | Out-File $logFile -Append
+                    $stats["FilesSkipped"]++
+                    continue
+                }
+                else {
+                    # Rename source file to avoid overwriting
+                    $newFileName = "$($file.BaseName)_$(Get-Date -Format 'yyyyMMddHHmmss')$($file.Extension)"
+                    $destFile = Join-Path -Path $destPath -ChildPath $newFileName
+                    Write-Host "File exists but different content. Renaming to: $newFileName" -ForegroundColor Yellow
+                    "RENAMED: $($file.Name) -> $newFileName" | Out-File $logFile -Append
+                }
+            }
+            
+            # Copy the file to destination
+            Copy-Item -Path $file.FullName -Destination $destFile -Force
+            Write-Host "Moved: $($file.Name) -> $destFolder" -ForegroundColor Green
+            "MOVED: $($file.FullName) -> $destFile" | Out-File $logFile -Append
+            $stats["FilesMoved"]++
+        }
+        catch {
+            Write-Host "Error moving file $($file.Name): $_" -ForegroundColor Red
+            "ERROR: $($file.FullName) -> $destFile - $_" | Out-File $logFile -Append
+            $stats["ErrorCount"]++
+        }
     }
+}
+
+# Clean up temporary extraction folder
+if (Test-Path $tempExtractPath) {
+    Remove-Item -Path $tempExtractPath -Recurse -Force
+    Write-Host "Cleaned up temporary extraction folder" -ForegroundColor Yellow
 }
 
 # Write summary to log and console
@@ -444,6 +585,8 @@ Movement Summary
 Total files processed: $($stats["TotalFiles"])
 Files moved successfully: $($stats["FilesMoved"])
 Files skipped (identical): $($stats["FilesSkipped"])
+Zip files extracted: $($stats["ZipFilesExtracted"])
+Extracted files moved: $($stats["ExtractedFilesMoved"])
 Errors encountered: $($stats["ErrorCount"])
 "@
 
