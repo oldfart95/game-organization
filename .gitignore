@@ -1,0 +1,38 @@
+# Game Management Git Ignore File
+
+# Ignore bios organization folders
+bios_organization/
+scripts/bios/organization/
+
+# PowerShell module files
+*.psd1
+*.psm1
+*.ps1xml
+
+# Temp files
+*~
+*.bak
+*.tmp
+*.temp
+
+# Log files
+*.log
+logs/
+bios_movement_log.txt
+
+# Windows system files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# macOS system files
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# VS Code files
+.vscode/
+*.code-workspace
+.history/ 

@@ -1,0 +1,26 @@
+# RetroBar Unsupported Systems Reference
+
+This file lists systems that were identified in your ROM collection but don't have direct equivalents in RetroBar.
+You may need to handle these systems manually.
+
+## Common Unsupported Systems and Potential Solutions
+
+- Commodore Amiga: Try using "amiga500", "amiga1200", or "amiga4000" based on the specific Amiga model.
+- FinalBurn Neo (fba): Use "fbneo" for arcade games.
+- PC Engine (tg16): Use "pcengine" for TurboGrafx-16 games.
+- Neo Geo CD: Check if RetroBar supports "neogeocd".
+- MAME: Use specific MAME versions supported by RetroBar.
+
+## Troubleshooting
+
+If games don't work after moving:
+1. Check if BIOS files are required
+2. Verify the ROM files are in the correct format
+3. Ensure RetroBar is configured to use the correct emulator for that system
+4. Check file extensions match what the emulator expects
+
+## Additional Help
+
+For RetroBar customization and troubleshooting, visit:
+https://www.retrobat.org/
+https://github.com/RetroBat-Official/retrobat-setup
