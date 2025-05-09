@@ -21,7 +21,9 @@ Game_Management/
 │   ├── utilities/           # General utility scripts
 │   ├── README.md            # Scripts documentation
 │   └── organize_scripts.ps1 # Script organization tool
-└── README.md                # This file
+├── README.md                # This file
+├── CONTRIBUTING.md          # Guidelines for contributors
+└── LICENSE                  # MIT License
 ```
 
 ## Getting Started
@@ -57,6 +59,10 @@ For more detailed information on scripts and their usage, see:
 - `scripts/README.md` - Detailed scripts documentation
 - `scripts/bios/README_bios_organization.md` - BIOS organization details
 
+## Contributing
+
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on how to contribute to this project.
+
 ## License
 
-These scripts are provided as-is for personal use. 
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details. 
